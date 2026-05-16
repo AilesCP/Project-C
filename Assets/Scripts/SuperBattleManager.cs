@@ -1,6 +1,8 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class SuperBattleManager : MonoBehaviour
 {
@@ -11,6 +13,7 @@ public class SuperBattleManager : MonoBehaviour
     public GameObject bafudaPrefab;
     public GameObject cardPrefab;
     public GameObject insTefudaPrefab;
+    public GameObject insYourTefudaPrefab;
 
     public float explosionForce = 500f;
     public float explosionRadius = 5f;
@@ -23,19 +26,20 @@ public class SuperBattleManager : MonoBehaviour
     public Transform parentTaneTransform;
     public Transform parentTanzakuTransform;
     public Transform parentKasuTransform;
+    public Transform parentHikariTransform2;
+    public Transform parentTaneTransform2;
+    public Transform parentTanzakuTransform2;
+    public Transform parentKasuTransform2;
     public Transform parentDrowTefuda;
     public Transform parentInsTefuda;
+
 
     private int yamafudaCount = 8;
     private int tefudaCount = 8;
 
     private int selectCardNum = 0;
-    private int drowYamafudaNum = 0;
-    private int currentYamafudaIndex = 0;
     private GameObject selectObj = null;
     private GameObject selectYamafudaObj = null;
-    private bool isSelectTefuda = false;
-    private int handYamafudaIndex = 0;
 
     public Material[] cardMaterials;
     List<int> numbers = new List<int>();
@@ -43,10 +47,22 @@ public class SuperBattleManager : MonoBehaviour
     GameObject[] bafudaSlots = new GameObject[8];
     Queue<int> q;
 
-    private bool isTurn = false;
+    private YakuType yaku;
+
+    public static bool isTurn = false;
     private bool hasCheckedThisTurn = false;
-    private bool isYamafudaDrawing = false;
-    private bool isYamafudaMatching = false;
+    public static bool isYamafudaDrawing = false;
+    private bool isSelectTefuda = false;
+
+    public List<BafudaScript> fieldCards = new List<BafudaScript>();
+    public static bool turnChanging = true;
+    private bool turnChange = false;
+    private int yamafudaNum = 0;
+
+    public GameObject koikoiPanel;
+    public Text myScoreText;
+    public Text yourScoreText;
+    public Text turnText;
 
     // ★ 元からあった cardType（役札の種類）
     private int[] cardType = {
@@ -63,10 +79,53 @@ public class SuperBattleManager : MonoBehaviour
         9,9,9,9, 10,10,10,10, 11,11,11,11, 12,12,12,12
     };
 
-    private int[] cardTypeCount = { 0, 0, 0, 0 };
+    private int[] myCardTypeCount = { 0, 0, 0, 0 };
+    private int[] yourCardTypeCount = { 0, 0, 0, 0 };
 
-    void Start()
+    private int[,] myMochifuda = {
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+    };
+
+    private int[,] yourMochifuda = {
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+    };
+
+    [System.Flags]
+    public enum YakuType
     {
+        None = 0,
+        Kasu10 = 1 << 0,   // 1
+        Tan5 = 1 << 1,   // 2
+        Tane5 = 1 << 2,   // 4
+        Sankou = 1 << 3,   // 8
+        Shikou = 1 << 4,   // 16
+        Gokou = 1 << 5,   // 32
+        Akatan = 1 << 6,   // 64
+        Aotan = 1 << 7,   // 128
+        Inoshikachou = 1 << 8,   // 256
+        Tsukimizake = 1 << 9,   // 512
+        Hanamizake = 1 << 10,  // 1024
+    }
+
+    private void OnEnable()
+    {
+        koikoiPanel.SetActive(false);
+        myScoreText.text = "0";
+        yourScoreText.text = "0";
+        if (isTurn)
+        {
+            turnText.text = "自分のターン";
+        }
+        else
+        {
+            turnText.text = "相手のターン";
+        }
         if (cam == null)
         {
             cam = Camera.main;
@@ -74,13 +133,65 @@ public class SuperBattleManager : MonoBehaviour
         instanceYamafudaCards();
         StartCoroutine(devideTefudaCards());
     }
+    void Start()
+    {
+        /*koikoiPanel.SetActive(false);
+        myScoreText.text = "0";
+        yourScoreText.text = "0";
+        turnText.text = "じぶんのターン";
+        if (cam == null)
+        {
+            cam = Camera.main;
+        }
+        instanceYamafudaCards();
+        StartCoroutine(devideTefudaCards());*/
+    }
 
     void Update()
     {
-        if (isTurn && !hasCheckedThisTurn)
+        if (!turnChanging)
         {
-            StartTurn();
-            hasCheckedThisTurn = true;
+            //Debug.Log("停止確認中");
+            if (AllCardsStopped())
+            {
+                turnChanging = true;
+                Debug.Log("札停止");
+                if (isYamafudaDrawing)
+                {
+                    //役の確認
+                    yaku = CheckYaku();
+
+                    //役が無かったらターン変更
+                    if (yaku == 0)
+                    {
+                        isTurn = !isTurn;
+                        if (turnText.text == "自分のターン")
+                        {
+                            turnText.text = "相手のターン";
+                            //相手のターン処理
+                            insSelectTefuda();
+                        }
+                        else
+                        {
+                            turnText.text = "自分のターン";
+                        }
+                    }
+                    else
+                    {
+                        //役があったらこいこいするか確認
+                        koikoiPanel.SetActive(true);
+                    }
+
+                    isYamafudaDrawing = false;
+                    isSelectTefuda = false;
+                }
+                else
+                {
+                    drowNextYamafuda();
+                    isYamafudaDrawing = true;
+                    Debug.Log("山札召喚");
+                }
+            }
         }
 
         if (Input.GetMouseButtonDown(0))
@@ -96,230 +207,37 @@ public class SuperBattleManager : MonoBehaviour
                 // ============================
                 if (obj.CompareTag("MyTefuda"))
                 {
-                    if (!isTurn || isYamafudaDrawing) return;
+                    Debug.Log("isTurn:" + isTurn);
+                    if (!isTurn || isYamafudaDrawing || isSelectTefuda) return;
 
                     CardInfo info = obj.GetComponent<CardInfo>();
                     if (info == null) return;
 
                     int handIndex = info.cardIndex;
                     selectCardNum = handIndex;
+                    isSelectTefuda = true;
+
+                    Transform objPosition = obj.transform;
 
                     // 空中に手札を生成
                     insSelectTefuda();
                     Destroy(obj);
-                    
-                    // ★ 一致する月が存在しない場合 → 場札に追加
-                    /*if (!IsAnyMonthMatch(parentBafudaTransform, parentMyTefudaTransform))
-                    {
-                        Debug.Log("一致する月が無いので、手札を場札に追加します");
 
-                        AddCardToBafuda(handIndex);
+                    // 自分
+                    GameObject myObj = Instantiate(myTefudaPrefab, parentMyTefudaTransform);
+                    myObj.transform.localPosition = objPosition.position;
+                    myObj.transform.localRotation = Quaternion.Euler(0, -90, 0);
 
-                        Destroy(obj); // 手札を消す
+                    // ★ ここで index を決める
+                    int idxMy = GetNextYamafuda();
+                    myObj.GetComponent<CardInfo>().cardIndex = idxMy;
 
-                        // 山札から次の札を引く
-                        drowNextYamafuda();
-                        return;
-                    }
-
-                    // ★ 一致がある場合 → いつも通り場札クリック待ち
-                    Debug.Log("一致する月があります。");
-                    selectCardNum = handIndex;
-                    isSelectTefuda = true;
-                    selectObj = obj;*/
+                    // Material を貼る
+                    Transform flont = myObj.transform.Find("Flont");
+                    Renderer rend = flont.GetComponent<Renderer>();
+                    rend.material = cardMaterials[idxMy];
 
                     return;
-                }
-
-                // ============================
-                // ★ 爆発用
-                // ============================
-                if (obj.CompareTag("Mosen"))
-                {
-                    Vector3 spawnPos = hit.point;
-
-                    GameObject expObj = Instantiate(cardPrefab, spawnPos, Quaternion.identity);
-
-                    Collider[] cols = Physics.OverlapSphere(spawnPos, explosionRadius);
-
-                    foreach (var col in cols)
-                    {
-                        Rigidbody rb = col.attachedRigidbody;
-                        if (rb != null)
-                        {
-                            rb.AddExplosionForce(
-                                explosionForce,
-                                spawnPos,
-                                explosionRadius,
-                                0f,
-                                ForceMode.Impulse
-                            );
-                        }
-                    }
-                    return;
-                }
-
-                // ============================
-                // ★ 場札クリック（CardInfo 方式）
-                // ============================
-                if (obj.CompareTag("Bafuda"))
-                {
-                    if (!isYamafudaMatching && !isSelectTefuda) return;
-
-                    CardInfo info = obj.GetComponent<CardInfo>();
-                    if (info == null) return;
-
-                    int baIndex = info.cardIndex;
-
-                    Debug.Log("クリックした場札 index = " + baIndex +
-                              " / 月 = " + cardMonth[baIndex] +
-                              " / タイプ = " + cardType[baIndex]);
-
-                    if (isYamafudaMatching)
-                    {
-                        CardInfo yamafudaInfo = selectYamafudaObj.GetComponent<CardInfo>();
-                        if (yamafudaInfo == null) return;
-
-                        handYamafudaIndex = yamafudaInfo.cardIndex;
-                        selectCardNum = handYamafudaIndex;
-                    }
-
-                    // ★ 月一致判定（Material 比較なし）
-                    if (cardMonth[selectCardNum] == cardMonth[baIndex])
-                    {
-                        Debug.Log("一致");
-                        // ============================
-                        // ★ 一致したときの処理
-                        // ============================
-
-                        GameObject objField = Instantiate(
-                            yamafudaPrefab,
-                            new Vector3(
-                                obj.transform.position.x - 0.05f,
-                                obj.transform.position.y + 0.01f,
-                                obj.transform.position.z - 0.05f
-                            ),
-                            Quaternion.Euler(0, -90, 0)
-                        );
-
-                        GameObject obj2 = null;
-
-                        // ★ 場札 → 持ち札
-                        if (cardType[baIndex] == 1)
-                        {
-                            obj2 = Instantiate(yamafudaPrefab, parentHikariTransform);
-                            obj2.transform.localPosition = new Vector3(0.55f, 0.465f + (cardTypeCount[0] * 0.01f), -2.35f - (cardTypeCount[0] * 0.1f));
-                            obj2.transform.localRotation = Quaternion.Euler(0, -90, 0);
-                            cardTypeCount[0]++;
-                        }
-                        else if (cardType[baIndex] == 2)
-                        {
-                            obj2 = Instantiate(yamafudaPrefab, parentTaneTransform);
-                            obj2.transform.localPosition = new Vector3(-0.15f, 0.465f + (cardTypeCount[1] * 0.01f), -2.35f - (cardTypeCount[1] * 0.1f));
-                            obj2.transform.localRotation = Quaternion.Euler(0, -90, 0);
-                            cardTypeCount[1]++;
-                        }
-                        else if (cardType[baIndex] == 3)
-                        {
-                            obj2 = Instantiate(yamafudaPrefab, parentTanzakuTransform);
-                            obj2.transform.localPosition = new Vector3(-0.85f, 0.465f + (cardTypeCount[2] * 0.01f), -2.35f - (cardTypeCount[2] * 0.1f));
-                            obj2.transform.localRotation = Quaternion.Euler(0, -90, 0);
-                            cardTypeCount[2]++;
-                        }
-                        else if (cardType[baIndex] == 4)
-                        {
-                            obj2 = Instantiate(yamafudaPrefab, parentKasuTransform);
-                            obj2.transform.localPosition = new Vector3(-1.55f, 0.465f + (cardTypeCount[3] * 0.01f), -2.35f - (cardTypeCount[3] * 0.1f));
-                            obj2.transform.localRotation = Quaternion.Euler(0, -90, 0);
-                            cardTypeCount[3]++;
-                        }
-
-                        GameObject obj3 = null;
-
-                        // ★ 手札 → 持ち札
-                        if (cardType[selectCardNum] == 1)
-                        {
-                            obj3 = Instantiate(yamafudaPrefab, parentHikariTransform);
-                            obj3.transform.localPosition = new Vector3(0.55f, 0.465f + (cardTypeCount[0] * 0.01f), -2.35f - (cardTypeCount[0] * 0.1f));
-                            obj3.transform.localRotation = Quaternion.Euler(0, -90, 0);
-                            cardTypeCount[0]++;
-                        }
-                        else if (cardType[selectCardNum] == 2)
-                        {
-                            obj3 = Instantiate(yamafudaPrefab, parentTaneTransform);
-                            obj3.transform.localPosition = new Vector3(-0.15f, 0.465f + (cardTypeCount[1] * 0.01f), -2.35f - (cardTypeCount[1] * 0.1f));
-                            obj3.transform.localRotation = Quaternion.Euler(0, -90, 0);
-                            cardTypeCount[1]++;
-                        }
-                        else if (cardType[selectCardNum] == 3)
-                        {
-                            obj3 = Instantiate(yamafudaPrefab, parentTanzakuTransform);
-                            obj3.transform.localPosition = new Vector3(-0.85f, 0.465f + (cardTypeCount[2] * 0.01f), -2.35f - (cardTypeCount[2] * 0.1f));
-                            obj3.transform.localRotation = Quaternion.Euler(0, -90, 0);
-                            cardTypeCount[2]++;
-                        }
-                        else if (cardType[selectCardNum] == 4)
-                        {
-                            obj3 = Instantiate(yamafudaPrefab, parentKasuTransform);
-                            obj3.transform.localPosition = new Vector3(-1.55f, 0.465f + (cardTypeCount[3] * 0.01f), -2.35f - (cardTypeCount[3] * 0.1f));
-                            obj3.transform.localRotation = Quaternion.Euler(0, -90, 0);
-                            cardTypeCount[3]++;
-                        }
-
-                        // ★ Material 設定
-                        objField.transform.Find("Flont").GetComponent<Renderer>().material = cardMaterials[selectCardNum];
-                        obj2.transform.Find("Flont").GetComponent<Renderer>().material = cardMaterials[baIndex];
-                        obj3.transform.Find("Flont").GetComponent<Renderer>().material = cardMaterials[selectCardNum];
-
-                        if (isYamafudaMatching)
-                        {
-                            int slotIndex = System.Array.IndexOf(bafudaSlots, obj);
-                            bafudaSlots[slotIndex] = null;
-                            Destroy(objField);
-                            Destroy(selectYamafudaObj);
-                            Destroy(obj);
-                            isYamafudaMatching = false;
-                        }
-                        else
-                        {
-                            int slotIndex = System.Array.IndexOf(bafudaSlots, obj);
-                            bafudaSlots[slotIndex] = null;
-                            Destroy(selectObj);
-                            Destroy(objField);
-                            Destroy(obj);
-                        }
-
-                        isSelectTefuda = false;
-
-                        if (!isYamafudaDrawing)
-                        {
-                            // 山札から次の札を引く
-                            drowNextYamafuda();
-                            if (!IsAnyMonthMatch(parentBafudaTransform, parentDrowTefuda))
-                            {
-                                Debug.Log("一致する札がありません");
-                                CardInfo yamafudaInfo = selectYamafudaObj.GetComponent<CardInfo>();
-                                if (yamafudaInfo == null) return;
-
-                                handYamafudaIndex = yamafudaInfo.cardIndex;
-                                AddCardToBafuda(handYamafudaIndex);
-
-                                Destroy(selectYamafudaObj); // 手札を消す
-                                isTurn = false;
-                                return;
-                            }
-                            else
-                            {
-                                isYamafudaDrawing = true;
-                                isYamafudaMatching = true;
-                                Debug.Log("一致する札があります。");
-                                return;
-                            }
-                        }
-                        isTurn = false;
-                        isYamafudaDrawing = false;
-                        return;
-                    }
                 }
             }
         }
@@ -337,6 +255,20 @@ public class SuperBattleManager : MonoBehaviour
 
     IEnumerator devideTefudaCards()
     {
+        numbers.Clear();
+        for(int i = 0; i < myMochifuda.GetLength(0); i++)
+        {
+            for(int j = 0; j < myMochifuda.GetLength(1); j++)
+            {
+                myMochifuda[i, j] = 0;
+                yourMochifuda[i, j] = 0;
+            }
+        }
+        for(int i= 0; i < myCardTypeCount.Length; i++)
+        {
+            myCardTypeCount[i] = 0;
+            yourCardTypeCount[i] = 0;
+        }
         for (int i = 0; i < cardMaterials.Length; i++)
         {
             numbers.Add(i);
@@ -397,7 +329,17 @@ public class SuperBattleManager : MonoBehaviour
 
             yield return new WaitForSeconds(0.2f);
         }
-        isTurn = true;
+
+        foreach (Transform child in parentBafudaTransform)
+        {
+            var script = child.GetComponent<BafudaScript>();
+            if (script != null)
+                fieldCards.Add(script);
+        }
+        if (!isTurn)
+        {
+            insSelectTefuda();
+        }
     }
 
     // 手札と場札の「月」が一致するカードの index を全部返す
@@ -460,39 +402,41 @@ public class SuperBattleManager : MonoBehaviour
 
     void StartTurn()
     {
-        Debug.Log("---- 場札の状態 ----");
+        //Debug.Log("---- 場札の状態 ----");
         foreach (Transform child in parentBafudaTransform)
         {
             CardInfo info = child.GetComponent<CardInfo>();
             if (info == null)
             {
-                Debug.Log("Bafuda child に CardInfo が付いてない");
+                //Debug.Log("Bafuda child に CardInfo が付いてない");
                 continue;
             }
 
             int idx = info.cardIndex;
-            Debug.Log("場札 index = " + idx + " / 月 = " + cardMonth[idx] + " / タイプ = " + cardType[idx]);
+            //Debug.Log("場札 index = " + idx + " / 月 = " + cardMonth[idx] + " / タイプ = " + cardType[idx]);
         }
-        Debug.Log("---- ここまで ----");
+        //Debug.Log("---- ここまで ----");
 
         List<int> matches = GetMatchCardIndexes();
 
         if (matches.Count == 0)
         {
-            Debug.Log("一致する手札（月）はありません");
+            //Debug.Log("一致する手札（月）はありません");
         }
         else
         {
-            Debug.Log("一致する手札のカード：");
+            //Debug.Log("一致する手札のカード：");
             foreach (int idx in matches)
             {
-                Debug.Log("手札 index = " + idx + " / 月 = " + cardMonth[idx] + " / タイプ = " + cardType[idx]);
+                //Debug.Log("手札 index = " + idx + " / 月 = " + cardMonth[idx] + " / タイプ = " + cardType[idx]);
             }
         }
     }
 
     int GetNextYamafuda()
     {
+        yamafudaNum++;
+        Debug.Log("yamahuda残り" + (48 - yamafudaNum));
         return q.Dequeue();
     }
     int GetFirstEmptyBafudaSlot()
@@ -550,9 +494,23 @@ public class SuperBattleManager : MonoBehaviour
 
     void drowNextYamafuda()
     {
-        selectYamafudaObj = Instantiate(yamafudaPrefab, parentDrowTefuda);
-        selectYamafudaObj.transform.localPosition = new Vector3(0, 0.545f, 1.7f);
-        selectYamafudaObj.transform.localRotation = Quaternion.Euler(0, -90, 0);
+        if (isTurn)
+        {
+            selectYamafudaObj = Instantiate(insTefudaPrefab, parentInsTefuda);
+            selectYamafudaObj.transform.localPosition = new Vector3(0, 0f, 0f);
+            selectYamafudaObj.transform.localRotation = Quaternion.Euler(0, -90, 0);
+        }
+        else
+        {
+            // ★ ランダム位置を作成
+            float randX = Random.Range(-0.67f, 0.67f);
+            float randZ = Random.Range(-1.8f, 1.8f);
+            Vector3 spawnPos = new Vector3(randX, 0f, randZ);
+
+            selectYamafudaObj = Instantiate(insYourTefudaPrefab, parentInsTefuda);
+            selectYamafudaObj.transform.localPosition = spawnPos;
+            selectYamafudaObj.transform.localRotation = Quaternion.Euler(0, 90, 0);
+        }
 
         // ★ ここで index を決める
         int idxMy = GetNextYamafuda();
@@ -567,13 +525,496 @@ public class SuperBattleManager : MonoBehaviour
 
     void insSelectTefuda()
     {
-        selectObj = Instantiate(insTefudaPrefab, parentInsTefuda);
-        selectObj.transform.localPosition = new Vector3(0, 0f, 0f);
-        selectObj.transform.localRotation = Quaternion.Euler(0, -90, 0);
+        if (isTurn)
+        {
+            selectObj = Instantiate(insTefudaPrefab, parentInsTefuda);
+            selectObj.transform.localPosition = new Vector3(0, 0f, 0f);
+            selectObj.transform.localRotation = Quaternion.Euler(0, -90, 0);
 
-        // Material を貼る
-        Transform flont = selectObj.transform.Find("Flont");
-        Renderer rend = flont.GetComponent<Renderer>();
-        rend.material = cardMaterials[selectCardNum];
+            selectObj.GetComponent<CardInfo>().cardIndex = selectCardNum;
+            Debug.Log(selectCardNum);
+
+            // Material を貼る
+            Transform flont = selectObj.transform.Find("Flont");
+            Renderer rend = flont.GetComponent<Renderer>();
+            rend.material = cardMaterials[selectCardNum];
+        }
+        else
+        {
+            // 相手の手札を取得
+            int count = parentYourTefudaTransform.childCount;
+            if (count == 0)
+            {
+                Debug.Log("相手の手札がありません");
+                return;
+            }
+            // ランダムに1枚選ぶ
+            int r = Random.Range(0, count);
+            Transform yourCard = parentYourTefudaTransform.GetChild(r);
+
+            // カード情報を取得
+            CardInfo info = yourCard.GetComponent<CardInfo>();
+            if (info == null)
+            {
+                Debug.LogError("相手の手札に CardInfo が付いていません");
+                return;
+            }
+            int idx = info.cardIndex;
+
+            // ★ ランダム位置を作成
+            float randX = Random.Range(-0.67f, 0.67f);
+            float randZ = Random.Range(-1.8f, 1.8f);
+            Vector3 spawnPos = new Vector3(randX, 0f, randZ);
+
+            // insTefuda を生成
+            GameObject obj = Instantiate(insYourTefudaPrefab, parentInsTefuda);
+            obj.transform.localPosition = spawnPos;
+            obj.transform.localRotation = Quaternion.Euler(0, 90, 0);
+
+            // index をセット
+            obj.GetComponent<CardInfo>().cardIndex = idx;
+
+            // 絵柄を貼る
+            Transform flont = obj.transform.Find("Flont");
+            Renderer rend = flont.GetComponent<Renderer>();
+            rend.material = cardMaterials[idx];
+
+            Debug.Log("相手の手札からランダムに1枚生成 → index = " + idx);
+
+            // ★ 相手の手札から削除（重要）
+            Destroy(yourCard.gameObject);
+        }
+    }
+    private void OnCollisionEnter(Collision collision)
+    {
+        CardInfo info = collision.gameObject.GetComponent<CardInfo>();
+        if (info == null) return;
+
+        int baIndex = info.cardIndex;
+
+        if (collision.collider.CompareTag("Bafuda") || collision.collider.CompareTag("insTefuda"))
+        {
+            Debug.Log("Floor と Bafuda が接触した！");
+            GameObject obj2 = null;
+
+            if (isTurn)
+            {
+                // ★ 場札 → 持ち札
+                if (cardType[baIndex] == 1)
+                {
+                    myMochifuda[cardType[baIndex] - 1, myCardTypeCount[0]] = baIndex + 1;
+                    obj2 = Instantiate(yamafudaPrefab, parentHikariTransform);
+                    obj2.transform.localPosition = new Vector3(0.55f, 0.465f + (myCardTypeCount[0] * 0.01f), -2.35f - (myCardTypeCount[0] * 0.1f));
+                    obj2.transform.localRotation = Quaternion.Euler(0, -90, 0);
+                    myCardTypeCount[0]++;
+                }
+                else if (cardType[baIndex] == 2)
+                {
+                    myMochifuda[cardType[baIndex] - 1, myCardTypeCount[1]] = baIndex + 1;
+                    obj2 = Instantiate(yamafudaPrefab, parentTaneTransform);
+                    obj2.transform.localPosition = new Vector3(-0.15f, 0.465f + (myCardTypeCount[1] * 0.01f), -2.35f - (myCardTypeCount[1] * 0.1f));
+                    obj2.transform.localRotation = Quaternion.Euler(0, -90, 0);
+                    myCardTypeCount[1]++;
+                }
+                else if (cardType[baIndex] == 3)
+                {
+                    myMochifuda[cardType[baIndex] - 1, myCardTypeCount[2]] = baIndex + 1;
+                    obj2 = Instantiate(yamafudaPrefab, parentTanzakuTransform);
+                    obj2.transform.localPosition = new Vector3(-0.85f, 0.465f + (myCardTypeCount[2] * 0.01f), -2.35f - (myCardTypeCount[2] * 0.1f));
+                    obj2.transform.localRotation = Quaternion.Euler(0, -90, 0);
+                    myCardTypeCount[2]++;
+                }
+                else if (cardType[baIndex] == 4)
+                {
+                    myMochifuda[cardType[baIndex] - 1, myCardTypeCount[3]] = baIndex + 1;
+                    obj2 = Instantiate(yamafudaPrefab, parentKasuTransform);
+                    obj2.transform.localPosition = new Vector3(-1.55f, 0.465f + (myCardTypeCount[3] * 0.01f), -2.35f - (myCardTypeCount[3] * 0.1f));
+                    obj2.transform.localRotation = Quaternion.Euler(0, -90, 0);
+                    myCardTypeCount[3]++;
+                }
+            }
+            else
+            {
+                // ★ 場札 → 持ち札
+                if (cardType[baIndex] == 1)
+                {
+                    yourMochifuda[cardType[baIndex] - 1, yourCardTypeCount[0]] = baIndex + 1;
+                    obj2 = Instantiate(yamafudaPrefab, parentHikariTransform2);
+                    obj2.transform.localPosition = new Vector3(-0.55f, 0.465f + (yourCardTypeCount[0] * 0.01f), 3.25f - (yourCardTypeCount[0] * 0.1f));
+                    obj2.transform.localRotation = Quaternion.Euler(0, 90, 0);
+                    yourCardTypeCount[0]++;
+                }
+                else if (cardType[baIndex] == 2)
+                {
+                    yourMochifuda[cardType[baIndex] - 1, yourCardTypeCount[1]] = baIndex + 1;
+                    obj2 = Instantiate(yamafudaPrefab, parentTaneTransform2);
+                    obj2.transform.localPosition = new Vector3(0.15f, 0.465f + (yourCardTypeCount[1] * 0.01f), 3.25f - (yourCardTypeCount[1] * 0.1f));
+                    obj2.transform.localRotation = Quaternion.Euler(0, 90, 0);
+                    yourCardTypeCount[1]++;
+                }
+                else if (cardType[baIndex] == 3)
+                {
+                    yourMochifuda[cardType[baIndex] - 1, yourCardTypeCount[2]] = baIndex + 1;
+                    obj2 = Instantiate(yamafudaPrefab, parentTanzakuTransform2);
+                    obj2.transform.localPosition = new Vector3(0.85f, 0.465f + (yourCardTypeCount[2] * 0.01f), 3.25f - (yourCardTypeCount[2] * 0.1f));
+                    obj2.transform.localRotation = Quaternion.Euler(0, 90, 0);
+                    yourCardTypeCount[2]++;
+                }
+                else if (cardType[baIndex] == 4)
+                {
+                    yourMochifuda[cardType[baIndex] - 1, yourCardTypeCount[3]] = baIndex + 1;
+                    obj2 = Instantiate(yamafudaPrefab, parentKasuTransform2);
+                    obj2.transform.localPosition = new Vector3(1.55f, 0.465f + (yourCardTypeCount[3] * 0.01f), 3.25f - (yourCardTypeCount[3] * 0.1f));
+                    obj2.transform.localRotation = Quaternion.Euler(0, 90, 0);
+                    yourCardTypeCount[3]++;
+                }
+            }
+
+            obj2.GetComponent<CardInfo>().cardIndex = baIndex;
+
+            // ★ Material 設定
+            obj2.transform.Find("Flont").GetComponent<Renderer>().material = cardMaterials[baIndex];
+
+            BafudaScript bafuda = collision.gameObject.GetComponent<BafudaScript>();
+            if (bafuda != null)
+            {
+                fieldCards.Remove(bafuda);
+            }
+            Destroy(collision.gameObject);
+
+            //isSelectTefuda = false;
+
+        }
+    }
+    private YakuType CheckYaku()
+    {
+        int kasuCount = 0;
+        int tanCount = 0;
+        int taneCount = 0;
+        int hikariCount = 0;
+
+        YakuType result = YakuType.None;
+
+        // --- 種類ごとの枚数カウント（今の構造でOK） ---
+        for (int i = 0; i < 12; i++)
+        {
+            int[,] target = isTurn ? myMochifuda : yourMochifuda;
+
+            if (target[3, i] > 0) kasuCount++;
+            if (target[2, i] > 0) tanCount++;
+            if (target[1, i] > 0) taneCount++;
+            if (target[0, i] > 0) hikariCount++;
+        }
+
+        // --- 基本役 ---
+        if (kasuCount >= 10) result |= YakuType.Kasu10;
+        if (tanCount >= 5) result |= YakuType.Tan5;
+        if (taneCount >= 5) result |= YakuType.Tane5;
+
+        if (hikariCount == 3) result |= YakuType.Sankou;
+        else if (hikariCount == 4) result |= YakuType.Shikou;
+        else if (hikariCount == 5) result |= YakuType.Gokou;
+
+        // --- ここから cardIndex を使った正しい役判定 ---
+        List<int> cards = GetMochifudaCardIndexes(isTurn);
+        DebugMochifuda(cards);
+
+        // 赤短
+        bool hasAka1 = cards.Any(i => cardMonth[i] == 1 && cardType[i] == 3);
+        bool hasAka2 = cards.Any(i => cardMonth[i] == 2 && cardType[i] == 3);
+        bool hasAka3 = cards.Any(i => cardMonth[i] == 3 && cardType[i] == 3);
+        if (hasAka1 && hasAka2 && hasAka3)
+            result |= YakuType.Akatan;
+
+        // 青短
+        bool hasAo1 = cards.Any(i => cardMonth[i] == 6 && cardType[i] == 3);
+        bool hasAo2 = cards.Any(i => cardMonth[i] == 9 && cardType[i] == 3);
+        bool hasAo3 = cards.Any(i => cardMonth[i] == 10 && cardType[i] == 3);
+        if (hasAo1 && hasAo2 && hasAo3)
+            result |= YakuType.Aotan;
+
+        // 猪鹿蝶
+        bool hasCho = cards.Any(i => cardMonth[i] == 6 && cardType[i] == 2);
+        bool hasIno = cards.Any(i => cardMonth[i] == 7 && cardType[i] == 2);
+        bool hasShika = cards.Any(i => cardMonth[i] == 10 && cardType[i] == 2);
+        if (hasCho && hasIno && hasShika)
+            result |= YakuType.Inoshikachou;
+
+        // 月見酒
+        bool hasTsuki = cards.Any(i => cardMonth[i] == 8 && cardType[i] == 1);
+        bool hasSakazuki = cards.Any(i => cardMonth[i] == 9 && cardType[i] == 2);
+        if (hasTsuki && hasSakazuki)
+            result |= YakuType.Tsukimizake;
+
+        // 花見酒
+        bool hasSakuraHikari = cards.Any(i => cardMonth[i] == 3 && cardType[i] == 1);
+        if (hasSakuraHikari && hasSakazuki)
+            result |= YakuType.Hanamizake;
+
+        return result;
+    }
+    private int CalculateYakuScore(YakuType yaku, int kasuCount, int tanCount, int taneCount)
+    {
+        int score = 0;
+
+        // --- カス10 ---
+        if ((yaku & YakuType.Kasu10) != 0)
+        {
+            score += 1 + (kasuCount - 10); // 10枚で1点、以降1枚ごとに+1
+            Debug.Log("カス10");
+        }
+
+        // --- タン5 ---
+        if ((yaku & YakuType.Tan5) != 0)
+        {
+            score += 1 + (tanCount - 5);
+            Debug.Log("タン5");
+        }
+
+        // --- タネ5 ---
+        if ((yaku & YakuType.Tane5) != 0)
+        {
+            score += 1 + (taneCount - 5);
+            Debug.Log("タネ5");
+        }
+
+        // --- 赤短 ---
+        if ((yaku & YakuType.Akatan) != 0)
+        {
+            score += 5;
+            Debug.Log("赤短");
+        }
+
+        // --- 青短 ---
+        if ((yaku & YakuType.Aotan) != 0)
+        {
+            score += 5;
+            Debug.Log("青短");
+        }
+
+        // --- 猪鹿蝶 ---
+        if ((yaku & YakuType.Inoshikachou) != 0)
+        {
+            score += 5;
+            Debug.Log("猪鹿蝶");
+        }
+
+        // --- 三光 ---
+        if ((yaku & YakuType.Sankou) != 0)
+        {
+            score += 5;
+            Debug.Log("三光");
+        }
+
+        // --- 四光 ---
+        if ((yaku & YakuType.Shikou) != 0)
+        {
+            score += 8;
+            Debug.Log("四光");
+        }
+
+        // --- 五光 ---
+        if ((yaku & YakuType.Gokou) != 0)
+        {
+            score += 10;
+            Debug.Log("五光");
+        }
+
+        // --- 月見酒 ---
+        if ((yaku & YakuType.Tsukimizake) != 0)
+        {
+            score += 5;
+            Debug.Log("月見酒");
+        }
+
+        // --- 花見酒 ---
+        if ((yaku & YakuType.Hanamizake) != 0)
+        {
+            score += 5;
+            Debug.Log("花見酒");
+        }
+
+        return score;
+    }
+    bool AllCardsStopped()
+    {
+        fieldCards.RemoveAll(card => card == null);
+
+        foreach (var card in fieldCards)
+        {
+            if (!card.isStopped)
+                return false;
+        }
+        return true;
+    }
+
+    public void OnKoikoi(int num)
+    {
+        // こいこいしたらターン変更
+        if(num == 0)
+        {
+            turnChange = true;
+            isTurn = !isTurn;
+            if (isTurn)
+            {
+                turnText.text = "自分のターン";
+            }
+            else
+            {
+                turnText.text = "相手のターン";
+                insSelectTefuda();
+            }
+            Debug.Log("ターン変更");
+            
+        }
+        // こいこいしなかったら点数をもらって次のゲームへ
+        else if(num == 1)
+        {
+            // カス・短冊・タネの枚数を取得
+            int kasuCount = 0;
+            int tanCount = 0;
+            int taneCount = 0;
+
+            for (int i = 0; i < 12; i++)
+            {
+                if (isTurn)
+                {
+                    if (myMochifuda[3, i] > 0) kasuCount++;
+                    if (myMochifuda[2, i] > 0) tanCount++;
+                    if (myMochifuda[1, i] > 0) taneCount++;
+                }
+                else
+                {
+                    if (yourMochifuda[3, i] > 0) kasuCount++;
+                    if (yourMochifuda[2, i] > 0) tanCount++;
+                    if (yourMochifuda[1, i] > 0) taneCount++;
+                }
+            }
+
+            // 点数計算
+            int score = CalculateYakuScore(yaku, kasuCount, tanCount, taneCount);
+
+            if (isTurn)
+            {
+                myScoreText.text = "" + score; 
+            }
+            else
+            {
+                yourScoreText.text = "" + score;
+            }
+
+            Debug.Log(score + "点獲得！！！");
+
+            resetTheGame();
+            StartCoroutine(devideTefudaCards());
+        }
+        koikoiPanel.SetActive(false);
+    }
+
+    [System.Obsolete]
+    void AutoStartFalling(GameObject card)
+    {
+        Rigidbody rb = card.GetComponent<Rigidbody>();
+        if (rb == null)
+            rb = card.AddComponent<Rigidbody>();
+
+        rb.isKinematic = false;
+        rb.useGravity = true;
+
+        turnChanging = false;
+
+        // タグ変更
+        card.tag = "Bafuda";
+
+        // BafudaScript を追加
+        var ba = card.AddComponent<BafudaScript>();
+
+        // ★ SuperBattleManager に登録
+        SuperBattleManager manager = FindObjectOfType<SuperBattleManager>();
+        if (manager != null)
+        {
+            manager.fieldCards.Add(ba);
+        }
+
+        Debug.Log("相手の札が自動落下開始");
+    }
+    private List<int> GetMochifudaCardIndexes(bool isMyTurn)
+    {
+        List<int> result = new List<int>();
+
+        Transform[] parents = isMyTurn
+            ? new Transform[] { parentHikariTransform, parentTaneTransform, parentTanzakuTransform, parentKasuTransform }
+            : new Transform[] { parentHikariTransform2, parentTaneTransform2, parentTanzakuTransform2, parentKasuTransform2 };
+
+        foreach (Transform p in parents)
+        {
+            foreach (Transform child in p)
+            {
+                CardInfo info = child.GetComponent<CardInfo>();
+                if (info != null)
+                    result.Add(info.cardIndex);
+            }
+        }
+
+        return result;
+    }
+    private void DebugMochifuda(List<int> cards)
+    {
+        foreach (int i in cards)
+        {
+            Debug.Log($"idx:{i}, month:{cardMonth[i]}, type:{cardType[i]}");
+        }
+    }
+
+    private void resetTheGame()
+    {
+        foreach (Transform child in parentBafudaTransform)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentMyTefudaTransform)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentYourTefudaTransform)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentHikariTransform)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentTaneTransform)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentTanzakuTransform)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentKasuTransform)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentHikariTransform2)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentTaneTransform2)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentTanzakuTransform2)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentKasuTransform2)
+        {
+            Destroy(child.gameObject);
+        }
+        foreach (Transform child in parentInsTefuda)
+        {
+            Destroy(child.gameObject);
+        }
     }
 }

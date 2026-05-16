@@ -8,6 +8,9 @@ TagManager:
   - MyTefuda
   - Bafuda
   - Floor
+  - YourTefuda
+  - insTefuda
+  - OyagimeFuda
   layers:
   - Default
   - TransparentFX
