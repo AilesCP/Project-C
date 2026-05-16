@@ -111,8 +111,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   planeHeight: 2
+  isDragging: 0
+  isDecidedPosition: 0
   baseExplosionForce: 5
   chargeRate: 3
+  isCharging: 0
+  isFalling: 0
 --- !u!1 &5178700951780150123
 GameObject:
   m_ObjectHideFlags: 0

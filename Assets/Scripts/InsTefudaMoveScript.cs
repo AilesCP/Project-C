@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 public class InsTefudaMoveScript : MonoBehaviour
 {
@@ -30,10 +31,15 @@ public class InsTefudaMoveScript : MonoBehaviour
     [System.Obsolete]
     void Update()
     {
+        // ★ UI に触れている間はカード操作を無効化
+        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+        {
+            return;
+        }
         // --- 左クリック押した瞬間 ---
         if (Input.GetMouseButtonDown(0))
         {
-            Debug.Log("クリック!");
+            //Debug.Log("クリック!");
             if (!isDecidedPosition)
             {
                 TryStartDrag();
@@ -49,7 +55,7 @@ public class InsTefudaMoveScript : MonoBehaviour
         // --- 左クリック離した瞬間 ---
         if (Input.GetMouseButtonUp(0))
         {
-            Debug.Log("クリック離した!");
+            //Debug.Log("クリック離した!");
             // ドラッグ終了 → 位置確定
             if (isDragging)
             {
@@ -60,7 +66,7 @@ public class InsTefudaMoveScript : MonoBehaviour
             // チャージ終了 → 落下開始
             if (isCharging)
             {
-                Debug.Log("チャージ終了");
+                //Debug.Log("チャージ終了");
                 isCharging = false;
                 StartFalling();
             }
@@ -88,7 +94,7 @@ public class InsTefudaMoveScript : MonoBehaviour
         rb.isKinematic = false;
         rb.useGravity = true;
 
-        Debug.Log("落下開始");
+        //Debug.Log("落下開始");
 
         // タグ変更
         gameObject.tag = "Bafuda";
@@ -169,7 +175,7 @@ public class InsTefudaMoveScript : MonoBehaviour
                 targetRb.AddExplosionForce(power, transform.position, radius, upwards, ForceMode.Impulse);
             }
 
-            Debug.Log("Bafuda に衝突 → 爆発させた");
+            //Debug.Log("Bafuda に衝突 → 爆発させた");
         }
     }
 }

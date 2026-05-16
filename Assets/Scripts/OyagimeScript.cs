@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class OyagimeScript : MonoBehaviour
 {
@@ -13,6 +14,8 @@ public class OyagimeScript : MonoBehaviour
     public Camera cam;
     private GameObject[] oyagimeFudas = new GameObject[3];
     private bool isIns = false;
+    public Text countDownText;
+    private bool selectOyafuda = false;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
@@ -24,7 +27,7 @@ public class OyagimeScript : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        if (!isIns) return;
+        if (!isIns || selectOyafuda) return;
 
         if (Input.GetMouseButtonDown(0))
         {
@@ -39,6 +42,7 @@ public class OyagimeScript : MonoBehaviour
                 // ============================
                 if (obj.CompareTag("OyagimeFuda"))
                 {
+                    selectOyafuda = true;
                     int mySelectMonth = 0;
                     int yourSelectMonth = 0;
                     mySelectMonth = obj.GetComponent<CardInfo>().cardIndex;
@@ -80,7 +84,8 @@ public class OyagimeScript : MonoBehaviour
                     }
 
                     Debug.Log("my" + mySelectMonth + " your" + yourSelectMonth);
-                    if(mySelectMonth > yourSelectMonth)
+
+                    if(mySelectMonth < yourSelectMonth)
                     {
                         SuperBattleManager.isTurn = true;
                     }
@@ -133,7 +138,14 @@ public class OyagimeScript : MonoBehaviour
 
     IEnumerator OnStartTheGame()
     {
-        yield return new WaitForSeconds(3f);
+        countDownText.text = "ŽQ";
+        yield return new WaitForSeconds(1f);
+        countDownText.text = "“ó";
+        yield return new WaitForSeconds(1f);
+        countDownText.text = "ˆë";
+        yield return new WaitForSeconds(1f);
+        countDownText.text = "Ÿ•‰ŠJŽn";
+        yield return new WaitForSeconds(0.5f);
 
         foreach (Transform child in parentOyagimeTransform)
         {

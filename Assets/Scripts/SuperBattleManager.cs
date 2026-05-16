@@ -32,14 +32,18 @@ public class SuperBattleManager : MonoBehaviour
     public Transform parentKasuTransform2;
     public Transform parentDrowTefuda;
     public Transform parentInsTefuda;
-
+    private YakuType lastYaku = YakuType.None;
 
     private int yamafudaCount = 8;
     private int tefudaCount = 8;
+    private bool hasKoikoi = false;
 
     private int selectCardNum = 0;
     private GameObject selectObj = null;
     private GameObject selectYamafudaObj = null;
+
+    private int gameNum = 3;
+    private int currentGameNum = 1;
 
     public Material[] cardMaterials;
     List<int> numbers = new List<int>();
@@ -48,6 +52,7 @@ public class SuperBattleManager : MonoBehaviour
     Queue<int> q;
 
     private YakuType yaku;
+    private bool oyaFlag = false;
 
     public static bool isTurn = false;
     private bool hasCheckedThisTurn = false;
@@ -63,6 +68,11 @@ public class SuperBattleManager : MonoBehaviour
     public Text myScoreText;
     public Text yourScoreText;
     public Text turnText;
+
+    // ゲーム終了時のリザルト表示
+    public GameObject resultPanel;
+    public Text resultDetailText;
+    public Text resultTotalText;
 
     // ★ 元からあった cardType（役札の種類）
     private int[] cardType = {
@@ -111,20 +121,22 @@ public class SuperBattleManager : MonoBehaviour
         Inoshikachou = 1 << 8,   // 256
         Tsukimizake = 1 << 9,   // 512
         Hanamizake = 1 << 10,  // 1024
+        Ameshikou = 1 << 11,   // 2048
     }
 
     private void OnEnable()
     {
+        oyaFlag = isTurn;
         koikoiPanel.SetActive(false);
         myScoreText.text = "0";
         yourScoreText.text = "0";
         if (isTurn)
         {
-            turnText.text = "自分のターン";
+            turnText.text = "自分の手番";
         }
         else
         {
-            turnText.text = "相手のターン";
+            turnText.text = "相手の手番";
         }
         if (cam == null)
         {
@@ -138,7 +150,7 @@ public class SuperBattleManager : MonoBehaviour
         /*koikoiPanel.SetActive(false);
         myScoreText.text = "0";
         yourScoreText.text = "0";
-        turnText.text = "じぶんのターン";
+        turnText.text = "じぶんの手番";
         if (cam == null)
         {
             cam = Camera.main;
@@ -161,25 +173,65 @@ public class SuperBattleManager : MonoBehaviour
                     //役の確認
                     yaku = CheckYaku();
 
-                    //役が無かったらターン変更
-                    if (yaku == 0)
+                    if (yaku != 0)
                     {
-                        isTurn = !isTurn;
-                        if (turnText.text == "自分のターン")
+                        // ★ 倍返し判定（自分がこいこい中 & 相手手番で役成立）
+                        if (!isTurn && hasKoikoi)
                         {
-                            turnText.text = "相手のターン";
-                            //相手のターン処理
+                            Debug.Log("倍返し発動！相手が役を作ったので即終了");
+
+                            int kasuCount, tanCount, taneCount, hikariCount;
+                            GetCurrentCounts(out kasuCount, out tanCount, out taneCount, out hikariCount);
+
+                            int score = CalculateYakuScore(yaku, kasuCount, tanCount, taneCount);
+
+                            // 倍返し → 2倍
+                            score *= 2;
+
+                            StartCoroutine(ShowResultCoroutine(score));
+                            return;
+                        }
+
+                        // ここから下は今のままでOK
+                        YakuType newYaku = yaku & ~lastYaku;
+
+                        if (newYaku != 0)
+                        {
+                            if (isTurn)
+                            {
+                                koikoiPanel.SetActive(true);
+                            }
+                        }
+                        else
+                        {
+                            isTurn = !isTurn;
+                            if (turnText.text == "自分の手番")
+                            {
+                                turnText.text = "相手の手番";
+                                insSelectTefuda();
+                            }
+                            else
+                            {
+                                turnText.text = "自分の手番";
+                            }
+                        }
+
+                        lastYaku = yaku;
+                    }
+                    else
+                    {
+                        // 役が無かったら手番変更
+                        isTurn = !isTurn;
+
+                        if (turnText.text == "自分の手番")
+                        {
+                            turnText.text = "相手の手番";
                             insSelectTefuda();
                         }
                         else
                         {
-                            turnText.text = "自分のターン";
+                            turnText.text = "自分の手番";
                         }
-                    }
-                    else
-                    {
-                        //役があったらこいこいするか確認
-                        koikoiPanel.SetActive(true);
                     }
 
                     isYamafudaDrawing = false;
@@ -223,19 +275,22 @@ public class SuperBattleManager : MonoBehaviour
                     insSelectTefuda();
                     Destroy(obj);
 
-                    // 自分
-                    GameObject myObj = Instantiate(myTefudaPrefab, parentMyTefudaTransform);
-                    myObj.transform.localPosition = objPosition.position;
-                    myObj.transform.localRotation = Quaternion.Euler(0, -90, 0);
+                    // 選択した手札の位置に次の札を生成
+                    /*if (yamafudaNum < cardMaterials.Length - 1)
+                    {
+                        GameObject myObj = Instantiate(myTefudaPrefab, parentMyTefudaTransform);
+                        myObj.transform.localPosition = objPosition.position;
+                        myObj.transform.localRotation = Quaternion.Euler(0, -90, 0);
 
-                    // ★ ここで index を決める
-                    int idxMy = GetNextYamafuda();
-                    myObj.GetComponent<CardInfo>().cardIndex = idxMy;
+                        // ★ ここで index を決める
+                        int idxMy = GetNextYamafuda();
+                        myObj.GetComponent<CardInfo>().cardIndex = idxMy;
 
-                    // Material を貼る
-                    Transform flont = myObj.transform.Find("Flont");
-                    Renderer rend = flont.GetComponent<Renderer>();
-                    rend.material = cardMaterials[idxMy];
+                        // Material を貼る
+                        Transform flont = myObj.transform.Find("Flont");
+                        Renderer rend = flont.GetComponent<Renderer>();
+                        rend.material = cardMaterials[idxMy];
+                    }*/
 
                     return;
                 }
@@ -439,7 +494,8 @@ public class SuperBattleManager : MonoBehaviour
         Debug.Log("yamahuda残り" + (48 - yamafudaNum));
         return q.Dequeue();
     }
-    int GetFirstEmptyBafudaSlot()
+
+    /*int GetFirstEmptyBafudaSlot()
     {
         // 空きスロットがあれば最優先で使う
         if (emptyBafudaSlots.Count > 0)
@@ -452,8 +508,9 @@ public class SuperBattleManager : MonoBehaviour
 
         // 空きが無ければ末尾
         return parentBafudaTransform.childCount;
-    }
-    void AddCardToBafuda(int cardIndex)
+    }*/
+
+    /*void AddCardToBafuda(int cardIndex)
     {
         int slot = GetFirstEmptySlot();
         if (slot == -1) return; // 空きなし
@@ -470,7 +527,7 @@ public class SuperBattleManager : MonoBehaviour
 
         // ★ スロットに登録
         bafudaSlots[slot] = newBa;
-    }
+    }*/
     Vector3 GetBafudaSlotPosition(int slot)
     {
         if (slot < 4)
@@ -482,7 +539,7 @@ public class SuperBattleManager : MonoBehaviour
             return new Vector3(-0.45f, 0.465f, 1.1f - ((slot - 4) * 0.5f));
         }
     }
-    int GetFirstEmptySlot()
+    /*int GetFirstEmptySlot()
     {
         for (int i = 0; i < bafudaSlots.Length; i++)
         {
@@ -490,7 +547,7 @@ public class SuperBattleManager : MonoBehaviour
                 return i;
         }
         return -1; // 空きなし
-    }
+    }*/
 
     void drowNextYamafuda()
     {
@@ -512,15 +569,18 @@ public class SuperBattleManager : MonoBehaviour
             selectYamafudaObj.transform.localRotation = Quaternion.Euler(0, 90, 0);
         }
 
-        // ★ ここで index を決める
-        int idxMy = GetNextYamafuda();
-        selectYamafudaObj.GetComponent<CardInfo>().cardIndex = idxMy;
-        Debug.Log(idxMy);
+        if (yamafudaNum < cardMaterials.Length)
+        {
+            // ★ ここで index を決める
+            int idxMy = GetNextYamafuda();
+            selectYamafudaObj.GetComponent<CardInfo>().cardIndex = idxMy;
+            Debug.Log(idxMy);
 
-        // Material を貼る
-        Transform flont = selectYamafudaObj.transform.Find("Flont");
-        Renderer rend = flont.GetComponent<Renderer>();
-        rend.material = cardMaterials[idxMy];
+            // Material を貼る
+            Transform flont = selectYamafudaObj.transform.Find("Flont");
+            Renderer rend = flont.GetComponent<Renderer>();
+            rend.material = cardMaterials[idxMy];
+        }
     }
 
     void insSelectTefuda()
@@ -551,6 +611,7 @@ public class SuperBattleManager : MonoBehaviour
             // ランダムに1枚選ぶ
             int r = Random.Range(0, count);
             Transform yourCard = parentYourTefudaTransform.GetChild(r);
+            Transform nextTefuda = yourCard.transform;
 
             // カード情報を取得
             CardInfo info = yourCard.GetComponent<CardInfo>();
@@ -583,6 +644,23 @@ public class SuperBattleManager : MonoBehaviour
 
             // ★ 相手の手札から削除（重要）
             Destroy(yourCard.gameObject);
+
+            // 引いた手札の位置に次の山札を生成
+            /*if (yamafudaNum < cardMaterials.Length)
+            {
+                GameObject obj2 = Instantiate(yourTefudaPrefab, parentYourTefudaTransform);
+                obj2.transform.localPosition = nextTefuda.position;
+                obj2.transform.localRotation = Quaternion.Euler(0, -90, 180);
+
+                // index をセット
+                int idxYour = GetNextYamafuda();
+                obj2.GetComponent<CardInfo>().cardIndex = idxYour;
+
+                // 絵柄を貼る
+                Transform flont2 = obj2.transform.Find("Flont");
+                Renderer rend2 = flont2.GetComponent<Renderer>();
+                rend2.material = cardMaterials[idxYour];
+            }*/
         }
     }
     private void OnCollisionEnter(Collision collision)
@@ -594,7 +672,7 @@ public class SuperBattleManager : MonoBehaviour
 
         if (collision.collider.CompareTag("Bafuda") || collision.collider.CompareTag("insTefuda"))
         {
-            Debug.Log("Floor と Bafuda が接触した！");
+            //Debug.Log("Floor と Bafuda が接触した！");
             GameObject obj2 = null;
 
             if (isTurn)
@@ -850,21 +928,22 @@ public class SuperBattleManager : MonoBehaviour
 
     public void OnKoikoi(int num)
     {
-        // こいこいしたらターン変更
+        // こいこいしたら手番変更
         if(num == 0)
         {
+            hasKoikoi = true;
             turnChange = true;
             isTurn = !isTurn;
             if (isTurn)
             {
-                turnText.text = "自分のターン";
+                turnText.text = "自分の手番";
             }
             else
             {
-                turnText.text = "相手のターン";
+                turnText.text = "相手の手番";
                 insSelectTefuda();
             }
-            Debug.Log("ターン変更");
+            Debug.Log("手番変更");
             
         }
         // こいこいしなかったら点数をもらって次のゲームへ
@@ -894,6 +973,12 @@ public class SuperBattleManager : MonoBehaviour
             // 点数計算
             int score = CalculateYakuScore(yaku, kasuCount, tanCount, taneCount);
 
+            // こいこいしていたら倍々
+            if (hasKoikoi)
+            {
+                score *= 2;
+            }
+
             if (isTurn)
             {
                 myScoreText.text = "" + score; 
@@ -903,41 +988,54 @@ public class SuperBattleManager : MonoBehaviour
                 yourScoreText.text = "" + score;
             }
 
+
             Debug.Log(score + "点獲得！！！");
 
-            resetTheGame();
-            StartCoroutine(devideTefudaCards());
+            StartCoroutine(ShowResultCoroutine(score));
+
         }
         koikoiPanel.SetActive(false);
     }
 
-    [System.Obsolete]
-    void AutoStartFalling(GameObject card)
+    Dictionary<string, int> GetYakuScoreDetail(YakuType yaku, int kasuCount, int tanCount, int taneCount)
     {
-        Rigidbody rb = card.GetComponent<Rigidbody>();
-        if (rb == null)
-            rb = card.AddComponent<Rigidbody>();
+        Dictionary<string, int> detail = new Dictionary<string, int>();
 
-        rb.isKinematic = false;
-        rb.useGravity = true;
-
-        turnChanging = false;
-
-        // タグ変更
-        card.tag = "Bafuda";
-
-        // BafudaScript を追加
-        var ba = card.AddComponent<BafudaScript>();
-
-        // ★ SuperBattleManager に登録
-        SuperBattleManager manager = FindObjectOfType<SuperBattleManager>();
-        if (manager != null)
+        // カス10
+        if ((yaku & YakuType.Kasu10) != 0)
         {
-            manager.fieldCards.Add(ba);
+            int s = 1 + (kasuCount - 10);
+            detail.Add("カス", s);
         }
 
-        Debug.Log("相手の札が自動落下開始");
+        // タン5
+        if ((yaku & YakuType.Tan5) != 0)
+        {
+            int s = 1 + (tanCount - 5);
+            detail.Add("短冊", s);
+        }
+
+        // タネ5
+        if ((yaku & YakuType.Tane5) != 0)
+        {
+            int s = 1 + (taneCount - 5);
+            detail.Add("タネ", s);
+        }
+
+        if ((yaku & YakuType.Sankou) != 0) detail.Add("三光", 5);
+        if ((yaku & YakuType.Shikou) != 0) detail.Add("四光", 8);
+        if ((yaku & YakuType.Gokou) != 0) detail.Add("五光", 10);
+
+        if ((yaku & YakuType.Akatan) != 0) detail.Add("赤短", 5);
+        if ((yaku & YakuType.Aotan) != 0) detail.Add("青短", 5);
+        if ((yaku & YakuType.Inoshikachou) != 0) detail.Add("猪鹿蝶", 5);
+
+        if ((yaku & YakuType.Tsukimizake) != 0) detail.Add("月見酒", 5);
+        if ((yaku & YakuType.Hanamizake) != 0) detail.Add("花見酒", 5);
+
+        return detail;
     }
+
     private List<int> GetMochifudaCardIndexes(bool isMyTurn)
     {
         List<int> result = new List<int>();
@@ -968,6 +1066,8 @@ public class SuperBattleManager : MonoBehaviour
 
     private void resetTheGame()
     {
+        hasKoikoi = false;
+        yamafudaNum = 0;
         foreach (Transform child in parentBafudaTransform)
         {
             Destroy(child.gameObject);
@@ -1016,5 +1116,80 @@ public class SuperBattleManager : MonoBehaviour
         {
             Destroy(child.gameObject);
         }
+    }
+    // ★ 今のプレイヤーの持ち札から枚数カウントだけ取り出す
+    void GetCurrentCounts(out int kasuCount, out int tanCount, out int taneCount, out int hikariCount)
+    {
+        kasuCount = 0;
+        tanCount = 0;
+        taneCount = 0;
+        hikariCount = 0;
+
+        int[,] target = isTurn ? myMochifuda : yourMochifuda;
+
+        for (int i = 0; i < 12; i++)
+        {
+            if (target[3, i] > 0) kasuCount++;
+            if (target[2, i] > 0) tanCount++;
+            if (target[1, i] > 0) taneCount++;
+            if (target[0, i] > 0) hikariCount++;
+        }
+    }
+    void StartNextGame()
+    {
+        resetTheGame();
+        StartCoroutine(devideTefudaCards());
+        oyaFlag = !oyaFlag;
+        isTurn = !oyaFlag;
+    }
+    string YakuToString(YakuType y)
+    {
+        List<string> list = new List<string>();
+
+        if ((y & YakuType.Kasu10) != 0) list.Add("カス10");
+        if ((y & YakuType.Tan5) != 0) list.Add("タン5");
+        if ((y & YakuType.Tane5) != 0) list.Add("タネ5");
+        if ((y & YakuType.Sankou) != 0) list.Add("三光");
+        if ((y & YakuType.Shikou) != 0) list.Add("四光");
+        if ((y & YakuType.Gokou) != 0) list.Add("五光");
+        if ((y & YakuType.Akatan) != 0) list.Add("赤短");
+        if ((y & YakuType.Aotan) != 0) list.Add("青短");
+        if ((y & YakuType.Inoshikachou) != 0) list.Add("猪鹿蝶");
+        if ((y & YakuType.Tsukimizake) != 0) list.Add("月見酒");
+        if ((y & YakuType.Hanamizake) != 0) list.Add("花見酒");
+
+        if (list.Count == 0) return "役なし";
+
+        return string.Join(" / ", list);
+    }
+    IEnumerator ShowResultCoroutine(int score)
+    {
+        resultPanel.SetActive(true);
+
+        // 今の持ち札から枚数カウント
+        int kasuCount, tanCount, taneCount, hikariCount;
+        GetCurrentCounts(out kasuCount, out tanCount, out taneCount, out hikariCount);
+
+        // 役ごとの点数を取得
+        var detail = GetYakuScoreDetail(lastYaku, kasuCount, tanCount, taneCount);
+
+        // 表示用文字列を作成
+        string text = "";
+        foreach (var d in detail)
+        {
+            text += $"・{d.Key} …… {d.Value}文\n";
+        }
+
+        resultDetailText.text = text;
+        resultTotalText.text = $"合計：{score}文";
+
+        yield return new WaitForSeconds(2.0f);
+
+        StartNextGame();
+    }
+
+    public void OnCloseResult()
+    {
+        resultPanel.SetActive(false);
     }
 }
